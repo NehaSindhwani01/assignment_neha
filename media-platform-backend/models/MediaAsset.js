@@ -21,6 +21,10 @@ const mediaAssetSchema = new mongoose.Schema({
     ref: 'AdminUser',
     required: true
   },
+  view_count: {
+    type: Number,
+    default: 0
+  },
   created_at: {
     type: Date,
     default: Date.now
