@@ -1,11 +1,12 @@
 const MediaAsset = require('../models/MediaAsset');
 const MediaViewLog = require('../models/MediaViewLog');
+const geoip = require('geoip-lite');
 
 // Log a media view
 exports.logView = async (req, res) => {
   try {
     const { id } = req.params;
-    const userIp = req.ip || req.connection.remoteAddress;
+    const userIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
     const userAgent = req.get('User-Agent') || '';
 
     // Check if media exists
@@ -22,12 +23,12 @@ exports.logView = async (req, res) => {
       media_id: id,
       viewed_by_ip: userIp,
       user_agent: userAgent,
-      token_used: req.query.token || 'direct' // Track if viewed via token
+      token_used: req.query.token || 'direct'
     });
 
     await viewLog.save();
 
-    // Update media view count (optional optimization)
+    // Update media view count
     await MediaAsset.findByIdAndUpdate(id, { 
       $inc: { view_count: 1 } 
     });
@@ -56,7 +57,7 @@ exports.logView = async (req, res) => {
 exports.getAnalytics = async (req, res) => {
   try {
     const { id } = req.params;
-    const { days = 30 } = req.query; // Optional: days to analyze
+    const { days = 30 } = req.query;
 
     // Check if media exists
     const media = await MediaAsset.findById(id);
@@ -64,6 +65,14 @@ exports.getAnalytics = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Media asset not found.'
+      });
+    }
+
+    // Verify user owns this media
+    if (media.created_by.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only view analytics for your own media.'
       });
     }
 
@@ -99,10 +108,9 @@ exports.getAnalytics = async (req, res) => {
       user_agent: view.user_agent
     }));
 
-    // Get top viewing countries (simplified - based on IP)
+    // Get top viewing countries using geoip
     const ipCountryMap = {};
     views.forEach(view => {
-      // Simple country detection based on IP (in real app, use geoip library)
       const country = detectCountryFromIP(view.viewed_by_ip);
       ipCountryMap[country] = (ipCountryMap[country] || 0) + 1;
     });
@@ -137,6 +145,14 @@ exports.getAnalytics = async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching analytics:', error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid media ID format.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Error fetching media analytics.',
@@ -145,20 +161,19 @@ exports.getAnalytics = async (req, res) => {
   }
 };
 
-// Helper function for simple country detection (for demo purposes)
+// Helper function for country detection using geoip
 function detectCountryFromIP(ip) {
-  // This is a simplified version. In production, use a proper geoip library
-  if (ip === '::1' || ip === '127.0.0.1') return 'Localhost';
-  
-  const ipParts = ip.split('.');
-  if (ipParts.length === 4) {
-    // Simple mapping for demo
-    const firstOctet = parseInt(ipParts[0]);
-    if (firstOctet >= 1 && firstOctet <= 126) return 'USA';
-    if (firstOctet >= 127 && firstOctet <= 191) return 'Europe';
-    if (firstOctet >= 192 && firstOctet <= 223) return 'Asia';
+  if (ip === '::1' || ip === '127.0.0.1' || ip === 'unknown') {
+    return 'Localhost';
   }
-  return 'Unknown';
+  
+  try {
+    const geo = geoip.lookup(ip);
+    return geo ? geo.country : 'Unknown';
+  } catch (error) {
+    console.error('Error in geoip lookup:', error);
+    return 'Unknown';
+  }
 }
 
 // Get all media analytics for admin dashboard
@@ -177,14 +192,17 @@ exports.getAllMediaAnalytics = async (req, res) => {
         const uniqueIps = new Set(views.map(view => view.viewed_by_ip));
         const unique_ips = uniqueIps.size;
 
+        const lastView = await MediaViewLog.findOne({ media_id: media._id })
+          .sort({ timestamp: -1 })
+          .select('timestamp');
+
         return {
           media_id: media._id,
           title: media.title,
           type: media.type,
           total_views,
           unique_ips,
-          last_viewed: views.length > 0 ? 
-            new Date(Math.max(...views.map(v => v.timestamp))) : null
+          last_viewed: lastView ? lastView.timestamp : null
         };
       })
     );
