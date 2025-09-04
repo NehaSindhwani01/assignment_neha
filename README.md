@@ -21,6 +21,13 @@ A secure media streaming platform backend built with Node.js, Express, and Mongo
   - View logging and analytics
   - Short-lived streaming tokens (10 minutes)
 
+- **Analytics & Tracking**
+  - Real-time view logging with IP and timestamp
+  - Comprehensive analytics dashboard
+  - View statistics and trends
+  - Geographic distribution tracking
+  - User agent analysis
+
 - **Security Features**
   - JWT token authentication
   - Password hashing with bcrypt
@@ -91,6 +98,7 @@ media-platform-backend/
 ├── controllers/
 │   ├── authController.js    # Authentication logic
 │   └── mediaController.js   # Media management logic
+│   └── analyticsController.js # Analytics tracking logic
 ├── middleware/
 │   ├── auth.js             # JWT verification middleware
 │   └── errorhandler.js     # Error handling middleware
@@ -101,6 +109,7 @@ media-platform-backend/
 ├── routes/
 │   ├── auth.js             # Authentication routes
 │   └── media.js            # Media management routes
+|   └── analytics.js        # Analytics routes
 ├── utils/
 │   └── emailService.js     # Email sending utilities
 ├── .gitignore              # Git ignore rules
@@ -246,6 +255,101 @@ Authorization: Bearer <jwt-token>
 ```http
 GET /api/media/:id/stream?token=<streaming-token>
 ```
+
+### Analytics Routes (`/api/analytics`)
+
+All analytics routes require authentication via  `Authorization: Bearer <jwt-token>` header.
+
+#### 1. Log Media View
+```http
+POST /api/analytics/media/:id/view
+```
+**Response:**
+```json
+{
+  "success": true,
+  "message": "View logged successfully.",
+  "data": {
+    "view_id": "viewId",
+    "media_id": "mediaId",
+    "viewed_at": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+#### 2. Get Media Analytics
+```http
+GET /api/analytics/media/:id/analytics
+Authorization: Bearer <jwt-token>
+```
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "media": {
+      "id": "mediaId",
+      "title": "Sample Video",
+      "type": "video"
+    },
+    "analytics": {
+      "total_views": 174,
+      "unique_ips": 122,
+      "views_per_day": {
+        "2025-08-01": 34,
+        "2025-08-02": 56
+      },
+      "recent_views": [
+        {
+          "ip": "192.168.1.1",
+          "timestamp": "2025-09-04T14:30:00.000Z",
+          "user_agent": "Mozilla/5.0..."
+        }
+      ],
+      "top_countries": [
+        {
+          "country": "USA",
+          "views": 89
+        }
+      ],
+      "time_period": {
+        "start": "2025-08-05",
+        "end": "2025-09-04",
+        "days": 30
+      }
+    }
+  }
+}
+```
+
+#### 3. Get Analytics Dashboard
+```http
+GET /api/analytics/dashboard
+Authorization: Bearer <jwt-token>
+```
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "total_media": 5,
+    "total_views": 250,
+    "total_unique_views": 150,
+    "media_analytics": [
+      {
+        "media_id": "mediaId",
+        "title": "Sample Video",
+        "type": "video",
+        "total_views": 174,
+        "unique_ips": 122,
+        "last_viewed": "2025-09-04T14:30:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+
 
 ## 🗄️ Database Models
 
