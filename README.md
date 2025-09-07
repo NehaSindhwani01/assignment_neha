@@ -1,6 +1,6 @@
 # Media Platform Backend
 
-A secure media streaming platform backend built with Node.js, Express, and MongoDB. This API provides user authentication, media asset management, and secure streaming capabilities with token-based access control.
+A secure media streaming platform backend built with Node.js, Express, and MongoDB. This API provides user authentication, media asset management, secure streaming capabilities with token-based access control, and comprehensive analytics with Redis caching.
 
 ## 🚀 Features
 
@@ -23,10 +23,16 @@ A secure media streaming platform backend built with Node.js, Express, and Mongo
 
 - **Analytics & Tracking**
   - Real-time view logging with IP and timestamp
-  - Comprehensive analytics dashboard
+  - Comprehensive analytics dashboard with Redis caching
   - View statistics and trends
   - Geographic distribution tracking
   - User agent analysis
+  - Rate limiting for view logging
+
+- **Performance Optimization**
+  - Redis caching for analytics data (1-hour cache expiration)
+  - Optimized database queries
+  - Non-blocking cache operations
 
 - **Security Features**
   - JWT token authentication
@@ -35,15 +41,25 @@ A secure media streaming platform backend built with Node.js, Express, and Mongo
   - CORS enabled
   - Helmet security headers
 
+- **DevOps & Testing**
+  - Docker containerization
+  - Docker Compose setup with Redis
+  - Comprehensive Jest test suite
+  - Health check endpoints
+
 ## 📋 Prerequisites
 
 Before running this application, make sure you have:
 
-- Node.js (v16 or higher)
+- Node.js (v20 or higher)
 - MongoDB (local or cloud instance)
+- Redis (local or cloud instance)
 - Gmail account for email services (or other SMTP provider)
+- Docker (optional, for containerized deployment)
 
 ## 🛠️ Installation
+
+### Local Development Setup
 
 1. **Clone the repository**
 ```bash
@@ -62,6 +78,9 @@ Create a `.env` file in the root directory:
 # Database
 MONGODB_URI=mongodb://localhost:27017/media-platform
 
+# Redis Configuration
+REDIS_URL=redis://127.0.0.1:6379
+
 # JWT Configuration
 JWT_SECRET=your-super-secret-jwt-key-here
 JWT_EXPIRE=7d
@@ -77,13 +96,44 @@ NODE_ENV=development
 BASE_URL=http://localhost:5000
 ```
 
-4. **Start the server**
+4. **Start Redis server** (if running locally)
+```bash
+redis-server
+```
+
+5. **Start the server**
 ```bash
 # Development mode
 npm run dev
 
 # Production mode
 npm start
+```
+
+### Docker Setup
+
+1. **Using Docker Compose (Recommended)**
+```bash
+# Build and start all services
+docker-compose up --build
+
+# Run in background
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+```
+
+2. **Manual Docker Build**
+```bash
+# Build the image
+docker build -t media-platform-backend .
+
+# Run with Redis (assuming Redis is running separately)
+docker run -p 5000:5000 --env-file .env media-platform-backend
 ```
 
 The server will start on `http://localhost:5000`
@@ -94,25 +144,33 @@ The server will start on `http://localhost:5000`
 media-platform-backend/
 ├── config/
 │   ├── database.js          # MongoDB connection setup
-│   └── jwt.js              # JWT configuration utilities
+│   ├── jwt.js              # JWT configuration utilities
+│   └── redis.js            # Redis connection and client setup
 ├── controllers/
 │   ├── authController.js    # Authentication logic
-│   └── mediaController.js   # Media management logic
-│   └── analyticsController.js # Analytics tracking logic
+│   ├── mediaController.js   # Media management logic
+│   └── analyticsController.js # Analytics tracking with caching
 ├── middleware/
 │   ├── auth.js             # JWT verification middleware
-│   └── errorhandler.js     # Error handling middleware
+│   ├── errorhandler.js     # Error handling middleware
+│   └── rateLimiter.js      # Rate limiting middleware
 ├── models/
 │   ├── AdminUser.js        # User model with authentication
 │   ├── MediaAsset.js       # Media asset model
 │   └── MediaViewLog.js     # View tracking model
 ├── routes/
 │   ├── auth.js             # Authentication routes
-│   └── media.js            # Media management routes
-|   └── analytics.js        # Analytics routes
+│   ├── media.js            # Media management routes
+│   └── analytics.js        # Analytics routes with rate limiting
+├── tests/
+│   ├── setup.js            # Test environment setup
+│   ├── auth.test.js        # Authentication tests
+│   └── analytics.test.js   # Analytics tests
 ├── utils/
 │   └── emailService.js     # Email sending utilities
 ├── .gitignore              # Git ignore rules
+├── docker-compose.yml      # Docker Compose configuration
+├── Dockerfile              # Docker container configuration
 ├── package.json            # Project dependencies
 └── server.js              # Main application entry point
 ```
@@ -258,9 +316,9 @@ GET /api/media/:id/stream?token=<streaming-token>
 
 ### Analytics Routes (`/api/analytics`)
 
-All analytics routes require authentication via  `Authorization: Bearer <jwt-token>` header.
+All analytics routes require authentication via `Authorization: Bearer <jwt-token>` header.
 
-#### 1. Log Media View
+#### 1. Log Media View (Rate Limited)
 ```http
 POST /api/analytics/media/:id/view
 ```
@@ -277,9 +335,9 @@ POST /api/analytics/media/:id/view
 }
 ```
 
-#### 2. Get Media Analytics
+#### 2. Get Media Analytics (Cached)
 ```http
-GET /api/analytics/media/:id/analytics
+GET /api/analytics/media/:id/analytics?days=30
 Authorization: Bearer <jwt-token>
 ```
 **Response:**
@@ -318,7 +376,8 @@ Authorization: Bearer <jwt-token>
         "days": 30
       }
     }
-  }
+  },
+  "cache": false
 }
 ```
 
@@ -349,7 +408,19 @@ Authorization: Bearer <jwt-token>
 }
 ```
 
+### Health Check Route
 
+```http
+GET /health
+```
+**Response:**
+```json
+{
+  "status": "OK",
+  "message": "Media Platform API is running",
+  "timestamp": "2025-09-08T12:00:00.000Z"
+}
+```
 
 ## 🗄️ Database Models
 
@@ -366,13 +437,33 @@ Authorization: Bearer <jwt-token>
 - **type**: Media type (video/audio)
 - **file_url**: URL to media file
 - **created_by**: Reference to AdminUser
+- **view_count**: Total view count
 - **created_at**: Upload timestamp
 
 ### MediaViewLog Model
 - **media_id**: Reference to MediaAsset
 - **viewed_by_ip**: Viewer's IP address
+- **user_agent**: Browser/client user agent
 - **timestamp**: View timestamp
 - **token_used**: Streaming token used
+
+## ⚡ Redis Caching
+
+The application uses Redis for caching analytics data to improve performance:
+
+- **Cache Duration**: 1 hour (3600 seconds)
+- **Cache Keys**: `media:{mediaId}:analytics:{days}`
+- **Fallback**: Graceful degradation if Redis is unavailable
+- **Non-blocking**: Cache operations don't block API responses
+
+### Redis Configuration
+```javascript
+// Connection URL format
+REDIS_URL=redis://127.0.0.1:6379
+
+// Or for cloud Redis
+REDIS_URL=redis://username:password@host:port
+```
 
 ## 🔒 Security Features
 
@@ -400,18 +491,110 @@ The application uses Gmail SMTP for sending emails. To set up:
 
 ## 🧪 Testing
 
-You can test the API using tools like:
-- **Postman**: Import the API endpoints
-- **curl**: Command-line testing
-- **Thunder Client**: VS Code extension
+The project includes comprehensive Jest test suites for authentication and analytics.
 
-### Sample Test Flow:
-1. Sign up with email/password
-2. Verify OTP from email
-3. Login to get JWT token
-4. Add media assets
-5. Generate streaming URLs
-6. Access media streams
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run specific test file
+npm test -- auth.test.js
+```
+
+### Test Structure
+
+- **`tests/setup.js`**: Global test setup and teardown
+- **`tests/auth.test.js`**: Authentication flow tests
+- **`tests/analytics.test.js`**: Analytics API tests
+
+### Test Features
+
+- Database connection management
+- Redis connection cleanup
+- User authentication testing
+- Analytics endpoint validation
+- Error handling verification
+
+### Sample Test Commands
+
+```bash
+# Test authentication endpoints
+npm test -- --testNamePattern="Auth Routes"
+
+# Test analytics with caching
+npm test -- --testNamePattern="Analytics Routes"
+
+# Run tests with verbose output
+npm test -- --verbose
+```
+
+## 🐳 Docker Deployment
+
+### Docker Compose (Recommended)
+
+The `docker-compose.yml` includes:
+- **App Service**: Node.js application
+- **Redis Service**: Redis cache server
+- **Environment Files**: Automatic `.env` loading
+- **Port Mapping**: 5000:5000 for app, 6379:6379 for Redis
+
+```yaml
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+```
+
+### Production Considerations
+
+- Use external Redis service (AWS ElastiCache, Redis Cloud)
+- Set proper environment variables
+- Configure reverse proxy (Nginx)
+- Enable SSL/TLS certificates
+- Set up monitoring and logging
+
+## 📊 Performance Monitoring
+
+### Metrics to Monitor
+
+1. **API Response Times**: Especially analytics endpoints
+2. **Cache Hit Rates**: Redis cache effectiveness
+3. **Database Query Performance**: MongoDB operations
+4. **Memory Usage**: Node.js application memory
+5. **Error Rates**: 4xx/5xx HTTP responses
+
+### Recommended Tools
+
+- **APM**: New Relic, DataDog, or Sentry
+- **Database Monitoring**: MongoDB Atlas monitoring
+- **Cache Monitoring**: Redis monitoring tools
+- **Load Testing**: Artillery, k6, or Apache JMeter
+
+## 🚨 Rate Limiting
+
+View logging is rate-limited to prevent abuse:
+
+- **Endpoint**: `POST /api/analytics/media/:id/view`
+- **Limit**: Configurable (default: 100 requests per hour per IP)
+- **Response**: 429 Too Many Requests when exceeded
 
 ## ⚠️ Important Notes
 
@@ -420,14 +603,19 @@ You can test the API using tools like:
 3. **JWT Tokens**: Default expiry of 7 days
 4. **File Storage**: Currently stores URLs, not actual files
 5. **Email Service**: Requires Gmail App Password setup
-
-
+6. **Redis Caching**: Analytics cached for 1 hour
+7. **Rate Limiting**: View logging has IP-based limits
 
 ## 🐛 Common Issues & Solutions
 
 ### MongoDB Connection Issues
 - Ensure MongoDB is running locally or cloud connection string is correct
 - Check firewall settings for cloud databases
+
+### Redis Connection Issues
+- Verify Redis server is running on the specified port
+- Check REDIS_URL environment variable
+- Application gracefully handles Redis unavailability
 
 ### Email Not Sending
 - Verify Gmail App Password is correctly set
@@ -441,9 +629,39 @@ You can test the API using tools like:
 - Frontend URL should be added to CORS configuration if needed
 - Verify API endpoint URLs
 
+### Docker Issues
+- Ensure Docker and Docker Compose are installed
+- Check port conflicts (5000, 6379)
+- Verify `.env` file is properly configured
+
+### Test Issues
+- Ensure test database is accessible
+- Check if Redis is available for tests
+- Clean test data between runs
+
+## 📈 Scaling Considerations
+
+### Horizontal Scaling
+- Use Redis Cluster for cache scaling
+- Implement MongoDB replica sets
+- Load balance multiple Node.js instances
+
+### Performance Optimization
+- Implement database indexing
+- Add CDN for media files
+- Use streaming for large files
+- Implement pagination for all list endpoints
+
+### Monitoring & Alerting
+- Set up health checks
+- Monitor cache hit ratios
+- Track API response times
+- Alert on error rate spikes
+
 ## 📞 Support
 
 For support and questions:
 - Create an issue in the repository
 - Check existing documentation
 - Review error logs for debugging information
+- Test with Postman collection (if available)
