@@ -8,12 +8,15 @@ const {
 
 const router = express.Router();
 
+const viewRateLimiter = require("../middleware/rateLimiter");
+
 /**
  * @route   POST /api/analytics/media/:id/view
  * @desc    Log a media view (IP + timestamp)
  * @access  Public (or Protected if you want)
  */
-router.post('/media/:id/view', logView);
+router.post('/media/:id/view', viewRateLimiter, logView);
+
 
 /**
  * @route   GET /api/analytics/media/:id/analytics
